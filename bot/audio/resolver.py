@@ -23,7 +23,7 @@ async def resolve(query: str) -> dict:
     """
     import audio.resolver as _mod
     search_query = query if query.startswith("http") else f"ytsearch1:{query}"
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     info = await loop.run_in_executor(None, lambda: _mod._resolve_sync(search_query))
     if info is None:
         raise ValueError(f"No results for: {query}")
