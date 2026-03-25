@@ -1,13 +1,17 @@
 #!/bin/bash
 set -e
 
+# Clean up stale lock from previous runs
+rm -f /tmp/.X99-lock
+
 echo "[entrypoint] Starting Xvfb on :99..."
 Xvfb :99 -screen 0 1280x720x24 &
 XVFB_PID=$!
 sleep 1
 
 echo "[entrypoint] Starting PulseAudio..."
-pulseaudio --start --log-target=stderr --exit-idle-time=-1
+# --system is required when running as root inside Docker
+pulseaudio --system --daemonize=yes --exit-idle-time=-1 --log-target=syslog
 sleep 1
 
 echo "[entrypoint] Setting up virtual audio..."

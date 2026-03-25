@@ -2,7 +2,7 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:99
-ENV PULSE_SERVER=unix:/tmp/pulse/native
+ENV PULSE_SERVER=unix:/run/pulse/native
 
 RUN apt-get update && apt-get install -y \
     pulseaudio \
