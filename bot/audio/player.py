@@ -10,6 +10,8 @@ import subprocess
 import logging
 import os
 
+from audio.resolver import re_resolve
+
 log = logging.getLogger(__name__)
 
 PULSE_SINK = "musicbot_sink"
@@ -62,6 +64,15 @@ class AudioPlayer:
         self._playing = False
 
     async def _play_track(self, track: dict) -> None:
+        # Re-resolve stream URL just before playback — YouTube URLs expire in ~6h.
+        # This ensures queued tracks always start with a fresh URL.
+        if track.get("webpage_url"):
+            try:
+                fresh_url = await re_resolve(track["webpage_url"])
+                track = {**track, "url": fresh_url}
+            except Exception as e:
+                log.warning("Re-resolve failed, using cached URL: %s", e)
+
         log.info("Playing: %s", track["title"])
         cmd = [
             "ffmpeg",

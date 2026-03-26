@@ -21,8 +21,8 @@ pulseaudio -n \
     --daemonize=no \
     --log-target=stderr \
     --load="module-native-protocol-unix socket=${PULSE_SOCKET} auth-anonymous=1" \
-    --load="module-null-sink sink_name=musicbot_sink sink_properties=device.description=MusicBot_Virtual_Sink" \
-    --load="module-virtual-source source_name=musicbot_sink.mic master=musicbot_sink.monitor" &
+    --load="module-null-sink sink_name=musicbot_sink sink_properties=device.description=MusicBot_Virtual_Sink rate=48000 format=float32le channels=2 channel_map=front-left,front-right" \
+    --load="module-virtual-source source_name=musicbot_sink.mic master=musicbot_sink.monitor rate=48000 format=float32le channels=2 channel_map=front-left,front-right" &
 PULSE_PID=$!
 export PULSE_SERVER="unix:${PULSE_SOCKET}"
 sleep 2

@@ -7,7 +7,8 @@ import asyncio
 import yt_dlp
 
 YDL_OPTS = {
-    "format": "bestaudio/best",
+    # Prefer opus/webm (~160 kbps) → m4a/aac (~128 kbps) → any best audio
+    "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
     "noplaylist": True,
     "quiet": True,
     "no_warnings": True,
@@ -36,6 +37,17 @@ async def resolve(query: str) -> dict:
         "webpage_url": info.get("webpage_url", query),
         "uploader": info.get("uploader", ""),
     }
+
+
+async def re_resolve(webpage_url: str) -> str:
+    """Re-fetch a fresh stream URL from the track's webpage URL.
+    Call this just before playback to avoid expired YouTube stream URLs.
+    """
+    loop = asyncio.get_running_loop()
+    info = await loop.run_in_executor(None, lambda: _resolve_sync(webpage_url))
+    if "entries" in info:
+        info = info["entries"][0]
+    return info["url"]
 
 
 def _resolve_sync(query: str) -> dict:
