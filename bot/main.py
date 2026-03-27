@@ -28,12 +28,15 @@ async def main():
     await ts_client.start()
 
     player = AudioPlayer()
-    cmd_parser = CommandParser(player, ts_client)
+
+    # ChatListener created first so the parser can reference it for !move
+    listener = ChatListener(ts_client, None)
+    cmd_parser = CommandParser(player, ts_client, listener)
 
     async def on_message(sender: str, message: str):
         await cmd_parser.handle(sender, message)
 
-    listener = ChatListener(ts_client, on_message)
+    listener.on_message = on_message
 
     channel = os.getenv("TS_CHANNEL", "")
     log.info("Bot started. Channel: %s", channel)

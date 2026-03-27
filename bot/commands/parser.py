@@ -8,6 +8,7 @@ Commands (channel chat only):
   !queue              Show queued tracks (first 10)
   !np                 Now playing
   !vol <0-100>        Set volume
+  !move <channel>     Move bot to another channel
   !help               List commands
 """
 
@@ -22,9 +23,11 @@ BOT_NICKNAME: str | None = None
 
 
 class CommandParser:
-    def __init__(self, player: AudioPlayer, ts_client: WebQueryClient):
+    def __init__(self, player: AudioPlayer, ts_client: WebQueryClient,
+                 listener=None):
         self.player = player
         self.ts = ts_client
+        self.listener = listener  # ChatListener — needed for !move
 
     async def handle(self, sender: str, message: str) -> None:
         if not message.startswith("!"):
@@ -43,6 +46,7 @@ class CommandParser:
             "!queue": self._cmd_queue,
             "!np": self._cmd_np,
             "!vol": self._cmd_vol,
+            "!move": self._cmd_move,
             "!help": self._cmd_help,
         }
 
@@ -98,7 +102,24 @@ class CommandParser:
         except ValueError:
             await self.ts.send_channel_message("Uso: !vol <0-100>")
 
+    async def _cmd_move(self, sender: str, args: str) -> None:
+        if not args:
+            await self.ts.send_channel_message("Uso: !move <canal>")
+            return
+        if not self.listener:
+            await self.ts.send_channel_message("Move no disponible.")
+            return
+        await self.player.stop()
+        ok = await self.listener.move_to_channel(args)
+        if ok:
+            await self.ts.send_channel_message(
+                f"Movido a {args} por {sender}. La musica sigue disponible."
+            )
+        else:
+            await self.ts.send_channel_message(f"Canal no encontrado: {args}")
+
     async def _cmd_help(self, sender: str, _: str) -> None:
         await self.ts.send_channel_message(
-            "Comandos: !play <query> | !skip | !stop | !queue | !np | !vol <n> | !help"
+            "Comandos: !play <query> | !skip | !stop | !queue | !np "
+            "| !vol <n> | !move <canal> | !help"
         )

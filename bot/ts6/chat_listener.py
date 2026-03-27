@@ -115,6 +115,11 @@ class ChatListener:
         self._password = os.getenv("TS_QUERY_PASSWORD", "")
         self._channel = os.getenv("TS_CHANNEL", "")
 
+        # Exposed for live channel moves
+        self._chan = None       # asyncssh channel
+        self._session = None    # _TSQuerySession
+        self._clid = None       # SSH query client ID
+
     async def start(self):
         self._running = True
         while self._running:
@@ -128,6 +133,40 @@ class ChatListener:
 
     async def stop(self):
         self._running = False
+
+    async def move_to_channel(self, channel_name: str) -> bool:
+        """Move the SSH query session to a different channel at runtime.
+
+        Also moves the TS6 desktop client (the audio source) via WebQuery
+        and re-registers for text events in the new channel.
+        Returns True on success.
+        """
+        cid = await self.client.find_channel_id(channel_name)
+        if cid is None:
+            return False
+
+        # Move the TS6 desktop client (audio source) via WebQuery
+        try:
+            ts_clid = await self.client.get_own_client_id()
+            await self.client.post("clientmove", {"clid": ts_clid, "cid": cid})
+        except Exception as e:
+            log.warning("Could not move TS6 client: %s", e)
+
+        # Move the SSH query session
+        if self._chan and self._session and self._clid:
+            resp = await self._session.cmd(
+                self._chan, f"clientmove clid={self._clid} cid={cid}"
+            )
+            log.info("SSH query moved to %s (cid=%s): %s", channel_name, cid, resp)
+
+            # Re-register for text events in the new channel
+            await self._session.cmd(self._chan, "servernotifyregister event=textchannel")
+            await self._session.cmd(self._chan, "servernotifyregister event=textprivate")
+            log.info("Re-registered text events in %s", channel_name)
+
+        self._channel = channel_name
+        self.client._channel_id = cid
+        return True
 
     async def _connect_and_listen(self):
         log.info(
@@ -144,6 +183,8 @@ class ChatListener:
         )
         async with conn:
             chan, session = await conn.create_session(_TSQuerySession)
+            self._chan = chan
+            self._session = session
 
             # Let banner arrive then discard it
             await asyncio.sleep(0.5)
@@ -154,10 +195,10 @@ class ChatListener:
 
             whoami = await session.cmd(chan, "whoami")
             log.debug("whoami: %s", whoami)
-            clid = None
+            self._clid = None
             for part in whoami.split():
                 if part.startswith("client_id="):
-                    clid = part.split("=", 1)[1]
+                    self._clid = part.split("=", 1)[1]
                     break
 
             # Resolve channel ID via WebQueryClient (already cached after join_channel)
@@ -168,11 +209,11 @@ class ChatListener:
                 except Exception:
                     pass
 
-            if clid and cid:
-                resp = await session.cmd(chan, f"clientmove clid={clid} cid={cid}")
+            if self._clid and cid:
+                resp = await session.cmd(chan, f"clientmove clid={self._clid} cid={cid}")
                 log.info("Moved to channel %s (cid=%s): %s", self._channel, cid, resp)
             else:
-                log.warning("Could not move to channel (clid=%s cid=%s)", clid, cid)
+                log.warning("Could not move to channel (clid=%s cid=%s)", self._clid, cid)
 
             r1 = await session.cmd(chan, "servernotifyregister event=textchannel")
             log.info("Register textchannel: %s", r1)
