@@ -32,6 +32,10 @@ if ! kill -0 $PULSE_PID 2>/dev/null; then
 fi
 echo "[entrypoint] PulseAudio socket: ${PULSE_SOCKET}"
 
+# Force-refresh settings.ini on every start — the persistent volume
+# may carry a stale copy from a previous build.
+cp /app/ts6_config/settings.ini /root/.config/TeamSpeak/settings.ini
+
 echo "[entrypoint] Launching TS6 client..."
 /app/scripts/launch_ts6.sh &
 TS6_PID=$!
