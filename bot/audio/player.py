@@ -77,23 +77,24 @@ class AudioPlayer:
         cmd = [
             "ffmpeg",
             "-loglevel", "warning",
-            # ── Input: network stream with aggressive buffering ──
+            # ── Input: network stream with large buffer ──
             "-reconnect", "1",
             "-reconnect_streamed", "1",
-            "-reconnect_delay_max", "10",
-            "-probesize", "50M",
-            "-analyzeduration", "10000000",     # 10 s
+            "-reconnect_delay_max", "15",
+            "-probesize", "100M",
+            "-analyzeduration", "20000000",     # 20 s
             "-fflags", "+discardcorrupt",
-            "-thread_queue_size", "4096",
+            "-thread_queue_size", "8192",
             "-i", track["url"],
-            # ── Audio processing ──
-            "-acodec", "pcm_s16le",
+            # ── Audio processing: float32 matches PulseAudio sink, SoX resampler ──
+            "-acodec", "pcm_f32le",
             "-ar", "48000",
             "-ac", "2",
-            "-af", f"volume={self.volume / 100},aresample=async=1000",
-            # ── PulseAudio output with 2 s target buffer ──
+            "-af", f"volume={self.volume / 100},"
+                   "aresample=resampler=soxr:precision=28:async=1000",
+            # ── PulseAudio output with 5 s target buffer ──
             "-f", "pulse",
-            "-buffer_duration", "2000",
+            "-buffer_duration", "5000",
             PULSE_SINK,
         ]
         env = os.environ.copy()

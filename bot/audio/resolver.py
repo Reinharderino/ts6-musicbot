@@ -7,8 +7,8 @@ import asyncio
 import yt_dlp
 
 YDL_OPTS = {
-    # Prefer opus/webm (~160 kbps) → m4a/aac (~128 kbps) → any best audio
-    "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
+    # Always pick the highest-quality audio stream available
+    "format": "bestaudio",
     "noplaylist": True,
     "quiet": True,
     "no_warnings": True,
