@@ -4,8 +4,10 @@ set -e
 APP_DIR="/opt/ts6-musicbot"
 
 # Clean up stale locks from previous runs
-rm -f /tmp/.X99-lock
+pkill -9 Xvfb 2>/dev/null || true
 pkill -9 pulseaudio 2>/dev/null || true
+pkill -f TeamSpeak 2>/dev/null || true
+rm -f /tmp/.X99-lock
 rm -f /run/pulse.pid /run/pulseaudio.pid /root/.config/pulse/pid 2>/dev/null || true
 rm -rf /tmp/pulse* 2>/dev/null || true
 
