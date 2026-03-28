@@ -3,6 +3,12 @@ set -e
 
 APP_DIR="/opt/ts6-musicbot"
 
+# Load environment variables from .env
+set -a
+# shellcheck source=/dev/null
+source "$APP_DIR/.env"
+set +a
+
 # Clean up stale locks from previous runs
 pkill -9 Xvfb 2>/dev/null || true
 pkill -9 pulseaudio 2>/dev/null || true
