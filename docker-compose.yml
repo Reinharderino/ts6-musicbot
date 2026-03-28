@@ -1,33 +1,42 @@
 services:
+  # ── Voice layer: headless TS3 protocol client, no Chromium ──────────────────
+  ts3audiobot:
+    image: splamy/ts3audiobot:nightly
+    container_name: ts3audiobot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - TS3AB_BOT__NAME=${TS_BOT_NICKNAME:-tendroaudio}
+      - TS3AB_CONNECT__ADDRESS=${TS_SERVER_HOST}
+      - TS3AB_CONNECT__PORT=${TS_SERVER_PORT:-9987}
+      - TS3AB_CONNECT__CHANNEL=${TS_CHANNEL}
+      - TS3AB_QUERY__ENABLE=true
+      - TS3AB_QUERY__PORT=58913
+    volumes:
+      - ts3ab_data:/app/data            # bot identity + DB
+      - audio_cache:/tmp/musicbot_cache  # shared with Python bot for local files
+    # network_mode: host  # Uncomment for self-hosted (same machine as TS server)
+
+  # ── Control layer: chat, yt-dlp downloads, queue management ─────────────────
   ts6-musicbot:
     build: .
     container_name: ts6-musicbot
     restart: unless-stopped
-    # network_mode: host  # Uncomment when bot and TS server run on the same machine (self-hosted)
-    #                     # Comment out when connecting to a remote TS server
-
     env_file: .env
-
     environment:
-      - DISPLAY=:99
-
+      - AUDIOBOT_URL=http://ts3audiobot:58913
+    depends_on:
+      - ts3audiobot
     volumes:
-      - ts6_identity:/root/.config/TeamSpeak
-      - audio_cache:/tmp/audio_cache
-
-    devices:
-      - /dev/snd:/dev/snd
-
-    cap_add:
-      - SYS_ADMIN
+      - audio_cache:/tmp/musicbot_cache
 
     healthcheck:
       test: ["CMD", "python3", "bot/healthcheck.py"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 30s
 
 volumes:
-  ts6_identity:
+  ts3ab_data:
   audio_cache:

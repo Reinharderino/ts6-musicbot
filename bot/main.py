@@ -11,6 +11,7 @@ from ts6.webquery import WebQueryClient
 from ts6.chat_listener import ChatListener
 from audio.player import AudioPlayer
 from commands.parser import CommandParser
+from ts_voice.audiobot_client import AudioBotClient
 import commands.parser as parser_module
 
 load_dotenv()
@@ -27,7 +28,14 @@ async def main():
     ts_client = WebQueryClient()
     await ts_client.start()
 
-    player = AudioPlayer()
+    audiobot = AudioBotClient()
+    await audiobot.start()
+    log.info("Waiting for TS3AudioBot API...")
+    if not await audiobot.wait_ready():
+        log.warning("TS3AudioBot not reachable — voice playback will fail.")
+    await audiobot.set_volume(int(os.getenv("AUDIO_VOLUME", "85")))
+
+    player = AudioPlayer(audiobot)
 
     # ChatListener created first so the parser can reference it for !move
     listener = ChatListener(ts_client, None)
@@ -65,6 +73,7 @@ async def main():
         log.info("Shutting down...")
     finally:
         await ts_client.stop()
+        await audiobot.stop()
 
 
 if __name__ == "__main__":

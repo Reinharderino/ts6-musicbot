@@ -1,0 +1,24 @@
+# TS3AudioBot configuration — populated at runtime from .env via entrypoint
+# Reference: https://github.com/Splamy/TS3AudioBot/wiki/Configuration
+
+[connect]
+# Filled by docker-compose environment / entrypoint
+address = ""         # TS_SERVER_HOST
+port    = 9987       # TS_SERVER_PORT — TCP/UDP voice port
+
+[bot]
+name    = ""         # TS_BOT_NICKNAME
+channel = ""         # TS_CHANNEL
+
+[query]
+# REST API — Python bot talks to this
+enable = true
+port   = 58913
+# allow requests without a token from localhost (container-internal)
+# NOTE: If you expose port 58913 publicly, set a token below.
+# token = ""
+
+[rights]
+# We disable the rights system so any !play etc. via chat works out of the box.
+# The Python bot handles permissions at the command-parser level.
+enabled = false

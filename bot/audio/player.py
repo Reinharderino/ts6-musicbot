@@ -1,139 +1,89 @@
 """
-AudioPlayer: queue management + FFmpeg -> PulseAudio virtual sink.
+AudioPlayer: queue management + playback via TS3AudioBot.
 
-FFmpeg streams audio to the `musicbot_sink` PulseAudio sink.
-The TS6 client captures `musicbot_sink.monitor` as its microphone input.
+Audio flow (tendroplayer branch):
+  yt-dlp download  →  local file  →  TS3AudioBot HTTP API
+                                     └─ OPUS encode → TS server (UDP voice)
+
+TS3AudioBot runs as a sidecar container and handles the TeamSpeak voice
+protocol.  This player delegates all actual audio transmission to it.
+PulseAudio and Xvfb are no longer needed.
 """
 
 import asyncio
-import subprocess
 import logging
 import os
 
-from audio.resolver import re_resolve, clear_cache, delete_track_file
+from audio.resolver import delete_track_file
+from ts_voice.audiobot_client import AudioBotClient
 
 log = logging.getLogger(__name__)
 
-PULSE_SINK = "musicbot_sink"
-
 
 class AudioPlayer:
-    def __init__(self):
+    def __init__(self, audiobot: AudioBotClient) -> None:
+        self.audiobot = audiobot
         self.queue: list[dict] = []
-        self._current_process: subprocess.Popen | None = None
         self._playing = False
         self.volume = int(os.getenv("AUDIO_VOLUME", "85"))
         self._loop_task: asyncio.Task | None = None
         self._current_track: dict | None = None
+        self._skip_flag = False
 
     async def enqueue(self, track: dict) -> int:
-        """Add track to queue. Returns queue position (1-indexed). Starts playback if idle."""
+        """Add track to queue. Returns 1-indexed position. Starts loop if idle."""
         self.queue.append(track)
         if not self._playing:
             self._loop_task = asyncio.create_task(self._play_loop())
         return len(self.queue)
 
     async def skip(self) -> None:
-        if self._current_process:
-            self._current_process.terminate()
-            log.info("Skipped current track.")
+        self._skip_flag = True
+        await self.audiobot.stop_playback()
+        log.info("Skipped current track.")
 
     async def stop(self) -> None:
-        for t in self.queue:
-            if t.get("local_path"):
-                delete_track_file(t["local_path"])
         self.queue.clear()
-        if self._current_process:
-            self._current_process.terminate()
+        self._skip_flag = True
+        await self.audiobot.stop_playback()
         if self._current_track and self._current_track.get("local_path"):
             delete_track_file(self._current_track["local_path"])
         self._playing = False
 
     async def set_volume(self, vol: int) -> None:
         self.volume = max(0, min(100, vol))
-        subprocess.run(
-            ["pactl", "set-sink-volume", PULSE_SINK, f"{self.volume}%"],
-            check=False,
-        )
+        await self.audiobot.set_volume(self.volume)
 
     def current_track(self) -> dict | None:
         return self._current_track
 
-    async def _flush_sink(self) -> None:
-        """Suspend/resume the sink to drain residual audio between tracks."""
-        env = os.environ.copy()
-        env.setdefault("PULSE_SERVER", "unix:/tmp/pulse/native")
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: subprocess.run(
-            ["pactl", "suspend-sink", PULSE_SINK, "1"], env=env, check=False
-        ))
-        await asyncio.sleep(0.2)
-        await loop.run_in_executor(None, lambda: subprocess.run(
-            ["pactl", "suspend-sink", PULSE_SINK, "0"], env=env, check=False
-        ))
+    # ── Internal play loop ───────────────────────────────────────────────────
 
     async def _play_loop(self) -> None:
         self._playing = True
         while self.queue:
             track = self.queue.pop(0)
             self._current_track = track
+            self._skip_flag = False
             await self._play_track(track)
             if track.get("local_path"):
                 delete_track_file(track["local_path"])
-            await self._flush_sink()
         self._current_track = None
         self._playing = False
 
     async def _play_track(self, track: dict) -> None:
         local_path = track.get("local_path")
-        if local_path:
-            source = local_path
-            log.info("Playing (local): %s", track["title"])
-            extra_input_flags = []
-        else:
-            # Fallback: stream directly — re-resolve to get a fresh URL.
-            if track.get("webpage_url"):
-                try:
-                    fresh_url = await re_resolve(track["webpage_url"])
-                    track = {**track, "url": fresh_url}
-                except Exception as e:
-                    log.warning("Re-resolve failed, using cached URL: %s", e)
-            source = track["url"]
-            log.info("Playing (stream): %s", track["title"])
-            extra_input_flags = [
-                "-reconnect", "1",
-                "-reconnect_streamed", "1",
-                "-reconnect_delay_max", "15",
-                "-probesize", "100M",
-                "-analyzeduration", "20000000",
-                "-fflags", "+discardcorrupt",
-                "-thread_queue_size", "8192",
-            ]
+        if not local_path:
+            log.warning("No local_path for track '%s', skipping.", track.get("title"))
+            return
 
-        cmd = [
-            "ffmpeg",
-            "-loglevel", "warning",
-            *extra_input_flags,
-            "-i", source,
-            # ── Audio processing: float32 matches PulseAudio sink, SoX resampler ──
-            "-acodec", "pcm_f32le",
-            "-ar", "48000",
-            "-ac", "2",
-            "-af", f"volume={self.volume / 100}",
-            # ── PulseAudio output with 5 s target buffer ──
-            "-f", "pulse",
-            "-buffer_duration", "5000",
-            PULSE_SINK,
-        ]
-        env = os.environ.copy()
-        # Ensure ffmpeg finds the PulseAudio socket even if the inherited
-        # environment doesn't carry PULSE_SERVER (e.g. under some container runtimes).
-        if "PULSE_SERVER" not in env:
-            env["PULSE_SERVER"] = "unix:/tmp/pulse/native"
+        log.info("Playing via TS3AudioBot: %s", track["title"])
+        try:
+            await self.audiobot.play_file(local_path)
+        except Exception as exc:
+            log.error("play_file failed: %s", exc)
+            return
 
-        loop = asyncio.get_running_loop()
-        self._current_process = await loop.run_in_executor(
-            None, lambda: subprocess.Popen(cmd, env=env)
-        )
-        await loop.run_in_executor(None, self._current_process.wait)
-        self._current_process = None
+        # Wait for playback to finish (use duration + 30 s buffer as timeout)
+        timeout = (track.get("duration") or 600) + 30
+        await self.audiobot.wait_for_finish(timeout=timeout)

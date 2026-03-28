@@ -1,0 +1,14 @@
+# Minimal rights config — everyone can use all commands.
+# TS3AudioBot will not start without this file.
+[[rule]]
+  [rule.matcher]
+    type = "api"
+  [[rule.actions]]
+    type = "allow"
+
+[[rule]]
+  [rule.matcher]
+    type = "clientgroup"
+    id = 0
+  [[rule.actions]]
+    type = "allow"
