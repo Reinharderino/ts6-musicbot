@@ -3,6 +3,7 @@ services:
     build: .
     container_name: ts6-musicbot
     restart: unless-stopped
+    network_mode: host
 
     env_file: .env
 
