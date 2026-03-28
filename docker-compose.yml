@@ -3,7 +3,8 @@ services:
     build: .
     container_name: ts6-musicbot
     restart: unless-stopped
-    network_mode: host
+    # network_mode: host  # Uncomment when bot and TS server run on the same machine (self-hosted)
+    #                     # Comment out when connecting to a remote TS server
 
     env_file: .env
 
