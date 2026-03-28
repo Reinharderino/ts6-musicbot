@@ -49,7 +49,7 @@ RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
 # ─────────────────────────────────────────────────────────────────────────────
 COPY teamspeak-client.tar.gz /tmp/ts6client.tar.gz
 RUN mkdir -p /opt/ts6 \
-    && tar -xzf /tmp/ts6client.tar.gz -C /opt/ts6 \
+    && tar -xzf /tmp/ts6client.tar.gz -C /opt/ts6 --no-same-permissions --no-same-owner \
     && rm /tmp/ts6client.tar.gz \
     && chmod +x /opt/ts6/TeamSpeak \
     && chown root:root /opt/ts6/chrome-sandbox \
