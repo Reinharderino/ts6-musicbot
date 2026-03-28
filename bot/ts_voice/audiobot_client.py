@@ -94,8 +94,9 @@ class AudioBotClient:
         while True:
             try:
                 status = await self._status()
+                # v0.12.0 uses {"bot": {...}, "music": {"active": bool, ...}}
                 music = status.get("music", {})
-                if not music.get("playing", False):
+                if not music.get("active", False):
                     break
             except Exception as exc:
                 log.warning("[audiobot] status poll failed: %s", exc)

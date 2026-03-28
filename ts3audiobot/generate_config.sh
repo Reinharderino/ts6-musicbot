@@ -1,8 +1,10 @@
 #!/bin/bash
-# Writes ts3audiobot.toml with values from environment variables.
-# Called by entrypoint before starting TS3AudioBot.
+# Writes ts3audiobot.toml into /opt/ts3audiobot/data/ from environment variables.
+# Called by entrypoint.sh before starting TS3AudioBot.
 
-CONF="/app/ts3audiobot/ts3audiobot.toml"
+DATA_DIR="/opt/ts3audiobot/data"
+mkdir -p "$DATA_DIR"
+CONF="$DATA_DIR/ts3audiobot.toml"
 
 cat > "$CONF" <<EOF
 [connect]
@@ -15,8 +17,9 @@ name    = "${TS_BOT_NICKNAME:-tendroaudio}"
 channel = "${TS_CHANNEL}"
 ${TS_CHANNEL_PASSWORD:+channel_password = "${TS_CHANNEL_PASSWORD}"}
 
-[query]
+[web]
 enable = true
+hosts  = ["*"]
 port   = 58913
 
 [rights]
