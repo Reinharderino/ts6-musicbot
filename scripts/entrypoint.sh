@@ -9,7 +9,7 @@ echo "[entrypoint] Generating TS3AudioBot config..."
 
 echo "[entrypoint] Starting TS3AudioBot..."
 cd /opt/ts3audiobot
-./TS3AudioBot > /tmp/ts3audiobot.log 2>&1 &
+./TS3AudioBot --non-interactive -c /opt/ts3audiobot/data/ts3audiobot.toml 2>&1 | tee /tmp/ts3audiobot.log &
 TSAB_PID=$!
 
 # Wait up to 30 s for the REST API to become reachable

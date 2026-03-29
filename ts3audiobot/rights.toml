@@ -1,14 +1,5 @@
-# Minimal rights config — everyone can use all commands.
-# TS3AudioBot will not start without this file.
-[[rule]]
-  [rule.matcher]
-    type = "api"
-  [[rule.actions]]
-    type = "allow"
+# TS3AudioBot rights.toml — allow everything for all clients.
+# The Python bot enforces its own permission logic; TS3AudioBot is the voice layer only.
 
-[[rule]]
-  [rule.matcher]
-    type = "clientgroup"
-    id = 0
-  [[rule.actions]]
-    type = "allow"
+# The root rule: any client can use any command.
+"+"

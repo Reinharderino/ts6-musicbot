@@ -31,9 +31,11 @@ async def main():
     audiobot = AudioBotClient()
     await audiobot.start()
     log.info("Waiting for TS3AudioBot API...")
-    if not await audiobot.wait_ready():
+    audiobot_ready = await audiobot.wait_ready()
+    if not audiobot_ready:
         log.warning("TS3AudioBot not reachable — voice playback will fail.")
-    await audiobot.set_volume(int(os.getenv("AUDIO_VOLUME", "85")))
+    else:
+        await audiobot.set_volume(int(os.getenv("AUDIO_VOLUME", "85")))
 
     player = AudioPlayer(audiobot)
 

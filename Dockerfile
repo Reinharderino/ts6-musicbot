@@ -1,6 +1,9 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+# TS3AudioBot bundles .NET Core 3.1 which can't find ICU on Ubuntu 24.04.
+# Invariant mode disables locale-sensitive string ops — fine for a music bot.
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 
 # Runtime deps — no Xvfb, no PulseAudio, no TS6 GUI client.
 # TS3AudioBot is a self-contained .NET binary that implements the TS3 voice
@@ -17,7 +20,16 @@ RUN apt-get update && apt-get install -y \
     unzip \
     libicu74 \
     libssl3 \
+    libopus-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# libssl1.1 compat — TS3AudioBot 0.12.0 bundles .NET Core 3.1 which links against
+# libssl1.1 (Ubuntu 24.04 only ships libssl3; both can coexist safely).
+RUN curl -fsSL \
+    "http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb" \
+    -o /tmp/libssl1.1.deb \
+    && dpkg -i /tmp/libssl1.1.deb \
+    && rm /tmp/libssl1.1.deb
 
 # yt-dlp (latest from GitHub, more up to date than pip)
 RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
