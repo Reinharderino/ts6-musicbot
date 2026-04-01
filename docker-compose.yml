@@ -7,8 +7,6 @@ services:
     #                     # Comment out when connecting to a remote TS server
 
     env_file: .env
-    environment:
-      - AUDIOBOT_URL=http://localhost:58913
 
     volumes:
       - audio_cache:/tmp/musicbot_cache

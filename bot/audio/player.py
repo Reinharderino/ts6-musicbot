@@ -1,13 +1,11 @@
 """
-AudioPlayer: queue management + playback via TS3AudioBot.
+AudioPlayer: queue management + playback via TS3 Client SDK.
 
 Audio flow (tendroplayer branch):
-  yt-dlp download  →  local file  →  TS3AudioBot HTTP API
-                                     └─ OPUS encode → TS server (UDP voice)
+  yt-dlp download  →  local file  →  TS3SDKClient._feed_audio_sync
+                                      └─ ffmpeg → PCM → SDK OPUS → TS server UDP
 
-TS3AudioBot runs as a sidecar container and handles the TeamSpeak voice
-protocol.  This player delegates all actual audio transmission to it.
-PulseAudio and Xvfb are no longer needed.
+No PulseAudio, no Xvfb, no Chromium.
 """
 
 import asyncio
@@ -15,14 +13,14 @@ import logging
 import os
 
 from audio.resolver import delete_track_file
-from ts_voice.audiobot_client import AudioBotClient
+from ts_voice.ts3voice_client import TS3VoiceClient
 
 log = logging.getLogger(__name__)
 
 
 class AudioPlayer:
-    def __init__(self, audiobot: AudioBotClient) -> None:
-        self.audiobot = audiobot
+    def __init__(self, voice_client: TS3VoiceClient) -> None:
+        self.voice_client = voice_client
         self.queue: list[dict] = []
         self._playing = False
         self.volume = int(os.getenv("AUDIO_VOLUME", "85"))
@@ -39,25 +37,25 @@ class AudioPlayer:
 
     async def skip(self) -> None:
         self._skip_flag = True
-        await self.audiobot.stop_playback()
+        await self.voice_client.stop_playback()
         log.info("Skipped current track.")
 
     async def stop(self) -> None:
         self.queue.clear()
         self._skip_flag = True
-        await self.audiobot.stop_playback()
+        await self.voice_client.stop_playback()
         if self._current_track and self._current_track.get("local_path"):
             delete_track_file(self._current_track["local_path"])
         self._playing = False
 
     async def set_volume(self, vol: int) -> None:
         self.volume = max(0, min(100, vol))
-        await self.audiobot.set_volume(self.volume)
+        await self.voice_client.set_volume(self.volume)
 
     def current_track(self) -> dict | None:
         return self._current_track
 
-    # ── Internal play loop ───────────────────────────────────────────────────
+    # ── Internal play loop ────────────────────────────────────────────────────
 
     async def _play_loop(self) -> None:
         self._playing = True
@@ -77,13 +75,12 @@ class AudioPlayer:
             log.warning("No local_path for track '%s', skipping.", track.get("title"))
             return
 
-        log.info("Playing via TS3AudioBot: %s", track["title"])
+        log.info("Playing via TS3 SDK: %s", track["title"])
         try:
-            await self.audiobot.play_file(local_path)
+            await self.voice_client.play_file(local_path)
         except Exception as exc:
             log.error("play_file failed: %s", exc)
             return
 
-        # Wait for playback to finish (use duration + 30 s buffer as timeout)
         timeout = (track.get("duration") or 600) + 30
-        await self.audiobot.wait_for_finish(timeout=timeout)
+        await self.voice_client.wait_for_finish(timeout=timeout)

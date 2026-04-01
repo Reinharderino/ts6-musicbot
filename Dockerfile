@@ -1,58 +1,69 @@
-FROM ubuntu:24.04
-
+FROM ubuntu:22.04 AS ts3voice-builder
 ENV DEBIAN_FRONTEND=noninteractive
-# TS3AudioBot bundles .NET Core 3.1 which can't find ICU on Ubuntu 24.04.
-# Invariant mode disables locale-sensitive string ops — fine for a music bot.
-ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 
-# Runtime deps — no Xvfb, no PulseAudio, no TS6 GUI client.
-# TS3AudioBot is a self-contained .NET binary that implements the TS3 voice
-# protocol directly: no Chromium, no virtual display, ~5% CPU vs 20-30%.
+# Build deps: Rust toolchain + libs needed by tsclientlib/audiopus
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    libopus-dev \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable
+ENV PATH="/root/.cargo/bin:$PATH"
+
+WORKDIR /build
+COPY ts3voice/ .
+
+# Pre-fetch deps so we can patch tsproto before compiling.
+# Two TS3-era constraints in tsproto 0.2 break TS6 certificate parsing:
+#   1. Intermediate block data range check rejects TS6 values (e.g. 0x104, 0xb8b7f440)
+#   2. Block type 8 (TS6 extension, 42 extra bytes) is unknown to tsproto and causes parse failure
+RUN cargo fetch
+
+RUN TSPROTO_LICENSE=$(find /root/.cargo/registry/src -name "license.rs" \
+        -path "*/tsproto-*/src/*" 2>/dev/null | head -1) && \
+    echo "Patching $TSPROTO_LICENSE" && \
+    # 1. Remove intermediate data range check: TS6 sends u32 values the TS3-era check rejects
+    sed -i 's/return Err(Error::IntermediateInvalidData(license_data));//' "$TSPROTO_LICENSE" && \
+    # 2. Handle block type 8 (TS6 extension): 42 extra bytes after the 42-byte header
+    sed -i 's/32 => (InnerLicense::Ephemeral, 0),/8 => { if data.len() < 84 { return Err(Error::TooShort); } (InnerLicense::Ephemeral, 42) } 32 => (InnerLicense::Ephemeral, 0),/' "$TSPROTO_LICENSE" && \
+    grep -n "IntermediateInvalidData\|InnerLicense::Ephemeral" "$TSPROTO_LICENSE"
+
+RUN cargo build --release
+
+# ── Runtime image ─────────────────────────────────────────────────────────────
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Runtime deps: ffmpeg (audio decode), python3, yt-dlp, libopus0 (ts3voice runtime)
+# libssl3 (ts3voice TLS), ca-certificates (HTTPS)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
     python3-pip \
-    python3-venv \
-    wget \
     curl \
     ca-certificates \
-    jq \
-    unzip \
-    libicu74 \
+    libopus0 \
     libssl3 \
-    libopus-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# libssl1.1 compat — TS3AudioBot 0.12.0 bundles .NET Core 3.1 which links against
-# libssl1.1 (Ubuntu 24.04 only ships libssl3; both can coexist safely).
-RUN curl -fsSL \
-    "http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb" \
-    -o /tmp/libssl1.1.deb \
-    && dpkg -i /tmp/libssl1.1.deb \
-    && rm /tmp/libssl1.1.deb
-
-# yt-dlp (latest from GitHub, more up to date than pip)
+# yt-dlp (latest from GitHub)
 RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
     -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp
 
-# TS3AudioBot 0.12.0 — self-contained Linux x64 binary (bundles its own runtime)
-# SHA of ts3audiobot dir verified at build time; no separate .NET install needed.
-RUN mkdir -p /opt/ts3audiobot \
-    && curl -fsSL \
-        "https://github.com/Splamy/TS3AudioBot/releases/download/0.12.0/TS3AudioBot_linux_x64.tar.gz" \
-        -o /tmp/ts3ab.tar.gz \
-    && tar -xzf /tmp/ts3ab.tar.gz -C /opt/ts3audiobot \
-    && chmod +x /opt/ts3audiobot/TS3AudioBot \
-    && rm /tmp/ts3ab.tar.gz
+# ts3voice Rust binary
+COPY --from=ts3voice-builder /build/target/release/ts3voice /usr/local/bin/ts3voice
 
 WORKDIR /app
 
 COPY bot/requirements.txt .
-RUN pip3 install --break-system-packages -r requirements.txt
+RUN pip3 install -r requirements.txt
 
 COPY bot/ ./bot/
 COPY scripts/ ./scripts/
-COPY ts3audiobot/ ./ts3audiobot/
-RUN chmod +x scripts/*.sh ts3audiobot/*.sh
+RUN chmod +x scripts/*.sh
 
 CMD ["./scripts/entrypoint.sh"]

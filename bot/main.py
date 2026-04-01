@@ -11,7 +11,7 @@ from ts6.webquery import WebQueryClient
 from ts6.chat_listener import ChatListener
 from audio.player import AudioPlayer
 from commands.parser import CommandParser
-from ts_voice.audiobot_client import AudioBotClient
+from ts_voice.ts3voice_client import TS3VoiceClient
 import commands.parser as parser_module
 
 load_dotenv()
@@ -28,16 +28,22 @@ async def main():
     ts_client = WebQueryClient()
     await ts_client.start()
 
-    audiobot = AudioBotClient()
-    await audiobot.start()
-    log.info("Waiting for TS3AudioBot API...")
-    audiobot_ready = await audiobot.wait_ready()
-    if not audiobot_ready:
-        log.warning("TS3AudioBot not reachable — voice playback will fail.")
-    else:
-        await audiobot.set_volume(int(os.getenv("AUDIO_VOLUME", "85")))
+    # ts3voice Rust binary — connects directly to the TS server as a voice client
+    voice_client = TS3VoiceClient()
+    host = os.getenv("TS_SERVER_HOST", "")
+    port = int(os.getenv("TS_SERVER_PORT", "9987"))
+    nickname = os.getenv("TS_BOT_NICKNAME", "tendroaudio")
+    channel = os.getenv("TS_CHANNEL", "")
+    server_password = os.getenv("TS_SERVER_PASSWORD", "")
 
-    player = AudioPlayer(audiobot)
+    log.info("Connecting ts3voice to %s:%d ...", host, port)
+    voice_ready = await voice_client.start(host, port, nickname, channel, server_password)
+    if not voice_ready:
+        log.warning("ts3voice failed to connect — voice playback will not work.")
+    else:
+        await voice_client.set_volume(int(os.getenv("AUDIO_VOLUME", "85")))
+
+    player = AudioPlayer(voice_client)
 
     # ChatListener created first so the parser can reference it for !move
     listener = ChatListener(ts_client, None)
@@ -48,10 +54,9 @@ async def main():
 
     listener.on_message = on_message
 
-    channel = os.getenv("TS_CHANNEL", "")
     log.info("Bot started. Channel: %s", channel)
 
-    # Move the serverquery session into the target channel so messages route correctly
+    # Move the serverquery session into the target channel
     if channel:
         try:
             ok = await ts_client.join_channel(channel)
@@ -75,7 +80,7 @@ async def main():
         log.info("Shutting down...")
     finally:
         await ts_client.stop()
-        await audiobot.stop()
+        await voice_client.stop()
 
 
 if __name__ == "__main__":
