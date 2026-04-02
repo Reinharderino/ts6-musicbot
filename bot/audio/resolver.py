@@ -11,14 +11,18 @@ import yt_dlp
 
 CACHE_DIR = "/tmp/musicbot_cache"
 
-YDL_OPTS = {
-    # Always pick the highest-quality audio stream available
-    "format": "bestaudio",
-    "noplaylist": True,
-    "quiet": True,
-    "no_warnings": True,
-    "extract_flat": False,
-}
+def _base_opts() -> dict:
+    return {
+        "format": "bestaudio/best",
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": False,
+        # Android client bypasses bot detection without requiring cookies
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
+    }
+
+YDL_OPTS = _base_opts()
 
 
 def clear_cache() -> None:
@@ -64,11 +68,8 @@ async def download_track(track: dict, progress_cb=None) -> str:
 
     def _download():
         opts = {
-            "format": "bestaudio",
+            **_base_opts(),
             "outtmpl": out_tmpl,
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
             "progress_hooks": [_hook],
         }
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -116,7 +117,7 @@ async def re_resolve(webpage_url: str) -> str:
 
 
 def _resolve_sync(query: str) -> dict:
-    with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+    with yt_dlp.YoutubeDL(_base_opts()) as ydl:
         info = ydl.extract_info(query, download=False)
         if info is None:
             raise ValueError(f"No results for: {query}")

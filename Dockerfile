@@ -23,6 +23,14 @@ COPY ts3voice/ .
 #   2. Block type 8 (TS6 extension, 42 extra bytes) is unknown to tsproto and causes parse failure
 RUN cargo fetch
 
+# Expose tsclientlib::Connection::send_command so we can send a clientupdate
+# after connecting to fix mute/hardware flags overridden by the TS6 server.
+RUN TSCLIENTLIB_LIB=$(find /root/.cargo/registry/src -name "lib.rs" \
+        -path "*/tsclientlib-*/src/*" 2>/dev/null | head -1) && \
+    echo "Patching $TSCLIENTLIB_LIB" && \
+    sed -i 's/fn send_command(&mut self/pub fn send_command(\&mut self/' "$TSCLIENTLIB_LIB" && \
+    grep -n "pub fn send_command" "$TSCLIENTLIB_LIB"
+
 RUN TSPROTO_LICENSE=$(find /root/.cargo/registry/src -name "license.rs" \
         -path "*/tsproto-*/src/*" 2>/dev/null | head -1) && \
     echo "Patching $TSPROTO_LICENSE" && \

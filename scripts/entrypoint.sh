@@ -5,5 +5,7 @@ set -e
 # No PulseAudio, no Xvfb, no audio hardware needed.
 
 echo "[entrypoint] Starting Python orchestrator..."
+
+
 cd /app
 exec python3 bot/main.py

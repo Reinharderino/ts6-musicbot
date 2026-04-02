@@ -126,8 +126,18 @@ class TS3VoiceClient:
         await self.stop_playback()
 
         if not self._voice_proc or self._voice_proc.poll() is not None:
-            log.error("[ts3voice] Voice process is not running")
-            return
+            log.warning("[ts3voice] Voice process exited — restarting before playback")
+            env = {k: v for k, v in __import__('os').environ.items()}
+            restarted = await self.start(
+                host=env.get("TS_SERVER_HOST", "localhost"),
+                port=int(env.get("TS_SERVER_PORT", "9987")),
+                nickname=env.get("TS_BOT_NICKNAME", "ts3voice"),
+                channel=env.get("TS_CHANNEL", ""),
+                server_password=env.get("TS_SERVER_PASSWORD", ""),
+            )
+            if not restarted:
+                log.error("[ts3voice] Failed to restart voice process")
+                return
 
         vol = self._volume / 100.0
         self._ffmpeg_proc = subprocess.Popen(

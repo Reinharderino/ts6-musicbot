@@ -1,4 +1,7 @@
 .env
+cookies.txt
+nullbackend/
+ts3voice/target/
 __pycache__/
 *.pyc
 .pytest_cache/
