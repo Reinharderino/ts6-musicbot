@@ -8,9 +8,9 @@
 //   TS_CHANNEL           – channel to join by name (default: server default)
 //   TS_SERVER_PASSWORD   – server password (optional)
 //
-// Stdin format: s16le, 48 000 Hz, mono, 960-sample frames (1920 bytes each).
+// Stdin format: s16le, 48 000 Hz, stereo, 960-sample frames (3840 bytes each).
 // ffmpeg pipeline example:
-//   ffmpeg -i track.webm -f s16le -ar 48000 -ac 1 pipe:1 | ts3voice
+//   ffmpeg -i track.webm -f s16le -ar 48000 -ac 2 pipe:1 | ts3voice
 
 use std::env;
 use std::time::Duration;
@@ -26,7 +26,7 @@ use tsclientlib::messages::c2s;
 use tsproto_packets::packets::{AudioData, CodecType, OutAudio};
 
 const FRAME_SAMPLES: usize = 960; // 20 ms at 48 kHz
-const FRAME_BYTES: usize = FRAME_SAMPLES * 2; // s16le: 2 bytes per sample
+const FRAME_BYTES: usize = FRAME_SAMPLES * 2; // s16le mono: 1920 bytes
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -119,7 +119,7 @@ async fn main() -> Result<()> {
 
     // Opus encoder lives on the main thread (audiopus::Encoder is !Send)
     let mut encoder = Encoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio)?;
-    encoder.set_bitrate(Bitrate::BitsPerSecond(128_000))?;
+    encoder.set_bitrate(Bitrate::BitsPerSecond(64_000))?;
 
     // Spawn a blocking OS thread to read raw PCM from stdin.
     // Sends 960-sample Vec<i16> frames over an async channel.

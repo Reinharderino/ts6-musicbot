@@ -32,6 +32,7 @@ class AudioPlayer:
         """Add track to queue. Returns 1-indexed position. Starts loop if idle."""
         self.queue.append(track)
         if not self._playing:
+            self._playing = True  # set before task starts to block concurrent enqueues
             self._loop_task = asyncio.create_task(self._play_loop())
         return len(self.queue)
 
@@ -58,16 +59,17 @@ class AudioPlayer:
     # ── Internal play loop ────────────────────────────────────────────────────
 
     async def _play_loop(self) -> None:
-        self._playing = True
-        while self.queue:
-            track = self.queue.pop(0)
-            self._current_track = track
-            self._skip_flag = False
-            await self._play_track(track)
-            if track.get("local_path"):
-                delete_track_file(track["local_path"])
-        self._current_track = None
-        self._playing = False
+        try:
+            while self.queue:
+                track = self.queue.pop(0)
+                self._current_track = track
+                self._skip_flag = False
+                await self._play_track(track)
+                if track.get("local_path"):
+                    delete_track_file(track["local_path"])
+        finally:
+            self._current_track = None
+            self._playing = False
 
     async def _play_track(self, track: dict) -> None:
         local_path = track.get("local_path")

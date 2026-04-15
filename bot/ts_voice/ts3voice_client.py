@@ -140,11 +140,14 @@ class TS3VoiceClient:
                 return
 
         vol = self._volume / 100.0
+        # aresample=async=1: fills silence/stretches samples to maintain constant
+        # 48kHz flow, preventing empty reads in the Rust 20ms interval loop.
+        af = f"volume={vol:.2f},aresample=async=1:min_hard_comp=0.100000:first_pts=0"
         self._ffmpeg_proc = subprocess.Popen(
             [
                 "ffmpeg", "-loglevel", "error",
                 "-i", path,
-                "-af", f"volume={vol:.2f}",
+                "-af", af,
                 "-f", "s16le",
                 "-ar", "48000",
                 "-ac", "1",
