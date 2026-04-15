@@ -1,5 +1,5 @@
-// ts3voice: reads raw s16le PCM from stdin, Opus-encodes, and streams to a
-// TeamSpeak 3/6 server.  No audio hardware or PulseAudio required.
+// ts3voice: reads raw s16le PCM from a TCP socket, Opus-encodes, and streams
+// to a TeamSpeak 3/6 server.  No audio hardware or PulseAudio required.
 //
 // Environment variables:
 //   TS_SERVER_HOST       – server hostname/IP (required)
@@ -7,13 +7,16 @@
 //   TS_BOT_NICKNAME      – display name (default "ts3voice")
 //   TS_CHANNEL           – channel to join by name (default: server default)
 //   TS_SERVER_PASSWORD   – server password (optional)
+//   TS_PCM_PORT          – local TCP port to listen for PCM (default 7777)
 //
-// Stdin format: s16le, 48 000 Hz, stereo, 960-sample frames (3840 bytes each).
+// PCM format: s16le, 48 000 Hz, mono, 960-sample frames (1920 bytes each).
 // ffmpeg pipeline example:
-//   ffmpeg -i track.webm -f s16le -ar 48000 -ac 2 pipe:1 | ts3voice
+//   ffmpeg -i track.webm -f s16le -ar 48000 -ac 1 tcp://127.0.0.1:7777
 
 use std::env;
 use std::time::Duration;
+
+use tokio::net::TcpListener;
 
 use anyhow::{bail, Result};
 use audiopus::{Application, Bitrate, Channels, SampleRate};
@@ -48,6 +51,14 @@ async fn main() -> Result<()> {
     let nickname = env::var("TS_BOT_NICKNAME").unwrap_or_else(|_| "ts3voice".into());
     let channel = env::var("TS_CHANNEL").unwrap_or_default();
     let server_password = env::var("TS_SERVER_PASSWORD").unwrap_or_default();
+    let pcm_port: u16 = env::var("TS_PCM_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(7777);
+
+    // Bind TCP listener early so it's ready before we even connect to TS.
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", pcm_port)).await?;
+    eprintln!("[ts3voice] Listening for PCM on 127.0.0.1:{}", pcm_port);
 
     let id = Identity::create();
 
@@ -121,31 +132,52 @@ async fn main() -> Result<()> {
     let mut encoder = Encoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio)?;
     encoder.set_bitrate(Bitrate::BitsPerSecond(64_000))?;
 
-    // Spawn a blocking OS thread to read raw PCM from stdin.
-    // Sends 960-sample Vec<i16> frames over an async channel.
+    // Accept PCM connections in a loop: one TCP connection per track.
+    // Each connect → blocking reader thread → disconnect → wait for next track.
+    // Channel stays alive (via listener_tx) until the accept loop itself fails.
     let (pcm_tx, mut pcm_rx) = mpsc::channel::<Vec<i16>>(16);
-    std::thread::spawn(move || {
-        use std::io::Read;
-        let stdin = std::io::stdin();
-        let mut handle = stdin.lock();
-        let mut raw = vec![0u8; FRAME_BYTES];
+    let listener_tx = pcm_tx.clone();
+    drop(pcm_tx); // listener_tx is the only sender; dropping it exits the main loop
 
+    tokio::spawn(async move {
         loop {
-            match handle.read_exact(&mut raw) {
-                Ok(()) => {
-                    let samples: Vec<i16> = raw
-                        .chunks_exact(2)
-                        .map(|b| i16::from_le_bytes([b[0], b[1]]))
-                        .collect();
-                    if pcm_tx.blocking_send(samples).is_err() {
-                        break;
+            match listener.accept().await {
+                Ok((socket, addr)) => {
+                    eprintln!("[ts3voice] PCM stream connected from {}", addr);
+                    let tx = listener_tx.clone();
+                    // Convert to std TcpStream for blocking read_exact in a thread.
+                    let mut std_sock = match socket.into_std() {
+                        Ok(s) => s,
+                        Err(e) => { eprintln!("[ts3voice] socket error: {}", e); continue; }
+                    };
+                    if let Err(e) = std_sock.set_nonblocking(false) {
+                        eprintln!("[ts3voice] set_nonblocking error: {}", e); continue;
                     }
+                    std::thread::spawn(move || {
+                        use std::io::Read;
+                        let mut raw = vec![0u8; FRAME_BYTES];
+                        loop {
+                            match std_sock.read_exact(&mut raw) {
+                                Ok(()) => {
+                                    let samples: Vec<i16> = raw
+                                        .chunks_exact(2)
+                                        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+                                        .collect();
+                                    if tx.blocking_send(samples).is_err() { break; }
+                                }
+                                Err(_) => break, // track ended → ffmpeg closed connection
+                            }
+                        }
+                        eprintln!("[ts3voice] PCM stream disconnected");
+                        // tx dropped here; listener_tx still alive → channel stays open
+                    });
                 }
-                Err(_) => break, // stdin closed → ffmpeg finished
+                Err(e) => {
+                    eprintln!("[ts3voice] TCP accept error: {}", e);
+                    break; // listener_tx dropped → channel disconnects → main loop exits
+                }
             }
         }
-        eprintln!("[ts3voice] stdin closed");
-        // drop pcm_tx to signal main loop
     });
 
     let mut voice_id: u16 = 0;
@@ -216,7 +248,7 @@ async fn main() -> Result<()> {
                         was_transmitting = false; // track silence periods
                     }
                     Err(TryRecvError::Disconnected) => {
-                        eprintln!("[ts3voice] stdin closed");
+                        eprintln!("[ts3voice] PCM listener exited");
                         break;
                     }
                 }

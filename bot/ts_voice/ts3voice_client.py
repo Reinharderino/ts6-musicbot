@@ -27,6 +27,7 @@ class TS3VoiceClient:
         self._voice_proc: Optional[subprocess.Popen] = None
         self._ffmpeg_proc: Optional[subprocess.Popen] = None
         self._volume: int = int(os.getenv("AUDIO_VOLUME", "85"))
+        self._pcm_port: int = int(os.getenv("TS_PCM_PORT", "7777"))
         self._stderr_task: Optional[asyncio.Task] = None
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -52,7 +53,6 @@ class TS3VoiceClient:
         try:
             self._voice_proc = subprocess.Popen(
                 [_BINARY],
-                stdin=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=env,
             )
@@ -105,10 +105,6 @@ class TS3VoiceClient:
             self._stderr_task.cancel()
             self._stderr_task = None
         if self._voice_proc:
-            try:
-                self._voice_proc.stdin.close()
-            except Exception:
-                pass
             loop = asyncio.get_running_loop()
             try:
                 await asyncio.wait_for(
@@ -143,6 +139,7 @@ class TS3VoiceClient:
         # aresample=async=1: fills silence/stretches samples to maintain constant
         # 48kHz flow, preventing empty reads in the Rust 20ms interval loop.
         af = f"volume={vol:.2f},aresample=async=1:min_hard_comp=0.100000:first_pts=0"
+        pcm_url = f"tcp://127.0.0.1:{self._pcm_port}"
         self._ffmpeg_proc = subprocess.Popen(
             [
                 "ffmpeg", "-loglevel", "error",
@@ -151,9 +148,8 @@ class TS3VoiceClient:
                 "-f", "s16le",
                 "-ar", "48000",
                 "-ac", "1",
-                "pipe:1",
+                pcm_url,
             ],
-            stdout=self._voice_proc.stdin,
             stderr=subprocess.DEVNULL,
         )
         log.info("[ts3voice] play_file: %s", path)
